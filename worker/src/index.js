@@ -15,7 +15,7 @@
 import { checkTarget, BadTarget } from './urls.js';
 import { proxyFetch, FetchProblem } from './fetch.js';
 import { rewriteHTML, rewriteCSS, proxyPath, CSS_TRANSFORM_CAP } from './rewrite.js';
-import { page } from './ui.js';
+import { page, demoPage } from './ui.js';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const COOKIE = 'tl';
@@ -41,6 +41,9 @@ export default {
       // Everything past here is a proxy route and is gated. An unauthenticated
       // request gets a bare 404 — the site looks empty to anyone without the key.
       if (!(await validSession(request, env))) return notFound();
+
+      if (path === '/demo') return html(demoPage(), { store: false });
+      if (path === '/demo/try') return await demoTry(url);
 
       if (path === '/raw') return await passthrough(url, { cors: false });
       if (path === '/cors') {
@@ -152,6 +155,54 @@ function corsPreflight() {
       'access-control-max-age': '86400',
     },
   });
+}
+
+/* ── /demo — an in-browser version of the test env ────────────────────────
+
+   The local test/ harness routes real traffic through a forward-proxy that
+   refuses everything, which is the rigorous proof. But that needs a terminal.
+   This is the same idea made clickable in a browser, for a Chromebook that has
+   none: two toggles — a *simulated* locked-down network, and whether to go
+   through the proxy — and it shows the outcome flip from "sorry, blocked" to
+   the real page. The filter is simulated because this Worker cannot itself sit
+   behind the viewer's network; the honesty is stated in the UI. */
+
+async function demoTry(url) {
+  const target = url.searchParams.get('url') || '';
+  const filterOn = url.searchParams.get('filter') === 'on';
+  const proxyOn = url.searchParams.get('proxy') === 'on';
+
+  if (!target) return json({ ok: false, status: 0, blocked: false, body: 'Type a URL first.' });
+
+  // The point of the demo: behind the filter, only the proxy gets through.
+  // Direct + filter on → the locked network refuses it.
+  if (filterOn && !proxyOn) {
+    return json({ ok: false, status: 403, blocked: true, contentType: 'text/plain', body: 'sorry, blocked' });
+  }
+
+  try {
+    checkTarget(target); // proxy and direct both honour the SSRF guard
+    const { response, finalURL } = await proxyFetch(target, { follow: true });
+    const ctype = (response.headers.get('content-type') || '').toLowerCase();
+    const isText = /text\/|json|xml|javascript|svg/.test(ctype);
+    let body;
+    if (isText) {
+      body = (await response.text()).slice(0, 200 * 1024);
+    } else {
+      body = `[${ctype || 'binary'}] — ${finalURL}`;
+    }
+    return json({
+      ok: response.status >= 200 && response.status < 400,
+      status: response.status,
+      blocked: false,
+      contentType: ctype,
+      via: proxyOn ? 'proxy' : 'direct',
+      finalURL,
+      body,
+    });
+  } catch (err) {
+    return json({ ok: false, status: 502, blocked: false, body: err.message || 'Could not fetch that.' });
+  }
 }
 
 /* ── /b/<url> browsing ────────────────────────────────────────────────── */
@@ -342,6 +393,12 @@ function html(body, { store }) {
       'referrer-policy': 'no-referrer',
       'x-robots-tag': 'noindex, nofollow',
     },
+  });
+}
+
+function json(body) {
+  return new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
 }
 

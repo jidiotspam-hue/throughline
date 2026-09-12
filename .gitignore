@@ -2,4 +2,4 @@ node_modules/
 worker/.wrangler/
 .DS_Store
 *.log
-test/j
+test/.gui-jar
