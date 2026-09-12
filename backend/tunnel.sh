@@ -19,40 +19,69 @@ LOG="$DIR/tunnel.log"
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
 
+# throughline only accepts a hostname once it can reach it from Cloudflare's
+# side — the same path /b/ uses — and answers 503 until then. cloudflared
+# announces the hostname a few seconds before the tunnel is really up, so the
+# first attempts are expected to be refused; keep trying. (Probing from here
+# instead would be meaningless: this network doesn't even resolve
+# trycloudflare.com, but Cloudflare does.)
 register() {
-  local url="$1" code
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-    -X PUT "$THROUGHLINE/yt/backend" -H "x-update-key: $KEY" --data "$url")
-  log "registered $url -> throughline said $code"
-  echo "$url" > "$DIR/current-url"
-}
-
-# cloudflared prints the hostname a few seconds before its edge connections
-# are actually up; in that window the hostname answers 530. Registering it
-# then would point /yt at a dead host, so hold until it really answers.
-wait_live() {
   local url="$1" code i
-  for i in $(seq 1 30); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$url/")
-    case "$code" in 2*|3*) log "$url is live (HTTP $code)"; return 0;; esac
+  for i in $(seq 1 45); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+      -X PUT "$THROUGHLINE/yt/backend" -H "x-update-key: $KEY" --data "$url")
+    if [ "$code" = "200" ]; then
+      log "registered $url (throughline confirmed it is live)"
+      echo "$url" > "$DIR/current-url"
+      return 0
+    fi
+    log "throughline: $url not live yet (HTTP $code), retrying"
     sleep 2
   done
-  log "$url never answered (last HTTP $code); registering anyway"
+  log "gave up registering $url"
   return 1
 }
 
+# cloudflared prints the hostname first, then brings up 4 HA connections to
+# the edge one by one. Until all are up, requests flap between edges that can
+# reach the tunnel and ones that answer 530 — so a hostname can pass a single
+# probe and still be half-dead. Hold registration until all 4 connections have
+# logged in (or 30s have passed, in case it only ever gets fewer).
+#
+# No `read -t` here on purpose: macOS ships bash 3.2, where a read timeout
+# returns 1 — indistinguishable from EOF — and treating it as EOF once closed
+# the pipe under cloudflared and killed it with SIGPIPE. Instead the producer
+# emits a __TICK__ line every 5s for as long as cloudflared lives, which gives
+# the reader a heartbeat for its fallback timer; a real EOF only arrives when
+# cloudflared has actually exited.
 while true; do
   log "starting cloudflared quick tunnel -> $LOCAL"
-  "$DIR/bin/cloudflared" tunnel --url "$LOCAL" --no-autoupdate 2>&1 | while IFS= read -r line; do
-    printf '%s\n' "$line" >> "$LOG"
-    # cloudflared prints the assigned hostname inside a boxed banner; pull the
-    # bare URL out of whichever line carries it.
-    if [[ "$line" =~ (https://[a-z0-9-]+\.trycloudflare\.com) ]]; then
-      url="${BASH_REMATCH[1]}"
-      wait_live "$url"
-      register "$url"
-    fi
-  done
+  (
+    "$DIR/bin/cloudflared" tunnel --url "$LOCAL" --no-autoupdate 2>&1 &
+    cfpid=$!
+    trap 'kill "$cfpid" 2>/dev/null' EXIT
+    while kill -0 "$cfpid" 2>/dev/null; do sleep 5; echo "__TICK__"; done
+    wait "$cfpid" 2>/dev/null
+  ) | {
+    url=""; conns=0; registered=""; seen_at=0
+    while IFS= read -r line; do
+      if [ "$line" != "__TICK__" ]; then
+        printf '%s\n' "$line" >> "$LOG"
+        if [ -z "$url" ] && [[ "$line" =~ (https://[a-z0-9-]+\.trycloudflare\.com) ]]; then
+          url="${BASH_REMATCH[1]}"; seen_at=$(date +%s)
+          log "tunnel hostname: $url (waiting for edge connections)"
+        fi
+        case "$line" in *"Registered tunnel connection"*) conns=$((conns + 1));; esac
+      fi
+      if [ -n "$url" ] && [ -z "$registered" ]; then
+        if [ "$conns" -ge 4 ] || [ $(( $(date +%s) - seen_at )) -ge 30 ]; then
+          registered=1
+          log "$conns edge connection(s) up; registering"
+          register "$url"
+        fi
+      fi
+    done
+  }
   log "cloudflared exited; restarting in 5s"
   sleep 5
 done

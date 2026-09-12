@@ -231,6 +231,36 @@ async function registerBackend(request, env) {
     return new Response('bad backend url', { status: 400 });
   }
   if (!env.YT) return new Response('KV not bound', { status: 500 });
+
+  // Registration is the proof of life. cloudflared announces a hostname a few
+  // seconds before its edge connections are up (it answers 530 meanwhile), and
+  // the Mac can't probe the hostname itself — its network doesn't even resolve
+  // trycloudflare.com. So probe from here, the same vantage /b/ fetches from,
+  // and refuse to store a host until it really answers. The script retries.
+  // One good answer is not enough: while the tunnel's 4 edge connections are
+  // still coming up, requests flap between edges that reach it and edges that
+  // answer 530. Require several consecutive successes so a half-connected
+  // tunnel is refused rather than stored.
+  const PROBES = 4;
+  for (let i = 0; i < PROBES; i++) {
+    let probe;
+    try {
+      probe = await fetch(backend, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(8000),
+        headers: { 'user-agent': 'throughline-probe' },
+      });
+    } catch {
+      return new Response('backend not reachable yet', { status: 503 });
+    }
+    probe.body?.cancel().catch(() => {});
+    if (probe.status >= 400) {
+      return new Response(`backend answered ${probe.status} on probe ${i + 1}/${PROBES}`, { status: 503 });
+    }
+    if (i < PROBES - 1) await new Promise((r) => setTimeout(r, 400));
+  }
+
   await env.YT.put('yt_backend', backend);
   return new Response('ok', { status: 200 });
 }

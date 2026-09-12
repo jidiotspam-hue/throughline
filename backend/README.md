@@ -32,6 +32,18 @@ bookmarks it. `tunnel.sh` registers the live hostname with throughline (KV), and
 Chromebook bookmark is always just `/yt`, and the network only ever sees
 throughline.
 
+**Registration is the proof of life.** cloudflared announces the hostname a few
+seconds before the tunnel is actually connected (it answers 530 meanwhile), so
+throughline fetches the URL from Cloudflare's side before accepting it and
+returns 503 until it answers; `tunnel.sh` just retries. KV therefore never
+holds a dead host, and the last good one survives a failed restart.
+
+Don't try to probe the tunnel from this Mac: this home network returns
+NXDOMAIN for `trycloudflare.com` (DNS filtering — even "via" 1.1.1.1), so the
+hostname is unreachable *locally* while being perfectly reachable from
+Cloudflare. Same reason the Chromebook must always go through `/yt`, never the
+raw tunnel URL.
+
 ## Design decisions baked into the config
 
 - **`domain:` left blank** — Invidious then emits *relative* links everywhere,
