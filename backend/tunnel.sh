@@ -42,11 +42,13 @@ register() {
   return 1
 }
 
-# cloudflared prints the hostname first, then brings up 4 HA connections to
-# the edge one by one. Until all are up, requests flap between edges that can
-# reach the tunnel and ones that answer 530 — so a hostname can pass a single
-# probe and still be half-dead. Hold registration until all 4 connections have
-# logged in (or 30s have passed, in case it only ever gets fewer).
+# cloudflared prints the hostname before its edge connection is actually up
+# (quick tunnels run a single one: "ha-connections:1"). Hold registration
+# until it logs "Registered tunnel connection" (or 30s have passed, as a
+# backstop). Even then Cloudflare takes a moment to propagate the tunnel
+# across its PoPs, which is why throughline probes several times before
+# accepting and register() retries — that is the real readiness gate; this
+# just avoids hammering it with attempts that cannot yet succeed.
 #
 # No `read -t` here on purpose: macOS ships bash 3.2, where a read timeout
 # returns 1 — indistinguishable from EOF — and treating it as EOF once closed
@@ -74,7 +76,7 @@ while true; do
         case "$line" in *"Registered tunnel connection"*) conns=$((conns + 1));; esac
       fi
       if [ -n "$url" ] && [ -z "$registered" ]; then
-        if [ "$conns" -ge 4 ] || [ $(( $(date +%s) - seen_at )) -ge 30 ]; then
+        if [ "$conns" -ge 1 ] || [ $(( $(date +%s) - seen_at )) -ge 30 ]; then
           registered=1
           log "$conns edge connection(s) up; registering"
           register "$url"
