@@ -1,0 +1,11 @@
+name = "throughline"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+# The passphrase is a secret, not a var — set it with:
+#   npx wrangler secret put PROXY_KEY
+# There are no bindings: the proxy keeps no state beyond the signed session
+# cookie, which needs nothing provisioned.
+
+[observability]
+enabled = true
