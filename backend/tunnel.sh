@@ -27,6 +27,20 @@ register() {
   echo "$url" > "$DIR/current-url"
 }
 
+# cloudflared prints the hostname a few seconds before its edge connections
+# are actually up; in that window the hostname answers 530. Registering it
+# then would point /yt at a dead host, so hold until it really answers.
+wait_live() {
+  local url="$1" code i
+  for i in $(seq 1 30); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$url/")
+    case "$code" in 2*|3*) log "$url is live (HTTP $code)"; return 0;; esac
+    sleep 2
+  done
+  log "$url never answered (last HTTP $code); registering anyway"
+  return 1
+}
+
 while true; do
   log "starting cloudflared quick tunnel -> $LOCAL"
   "$DIR/bin/cloudflared" tunnel --url "$LOCAL" --no-autoupdate 2>&1 | while IFS= read -r line; do
@@ -34,7 +48,9 @@ while true; do
     # cloudflared prints the assigned hostname inside a boxed banner; pull the
     # bare URL out of whichever line carries it.
     if [[ "$line" =~ (https://[a-z0-9-]+\.trycloudflare\.com) ]]; then
-      register "${BASH_REMATCH[1]}"
+      url="${BASH_REMATCH[1]}"
+      wait_live "$url"
+      register "$url"
     fi
   done
   log "cloudflared exited; restarting in 5s"
