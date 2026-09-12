@@ -33,6 +33,10 @@ export default {
       // unhandled 1101 instead of becoming a clean 400/502.
       if (path === '/login' && request.method === 'POST') return await login(request, env, origin);
 
+      // The Mac backend registers its current tunnel URL here. Not cookie-gated
+      // (a script has no session) — it carries the UPDATE_KEY header instead.
+      if (path === '/yt/backend' && request.method === 'PUT') return await registerBackend(request, env);
+
       if (path === '/' || path === '/index.html') {
         const authed = await validSession(request, env);
         return html(page({ authed }), { store: false });
@@ -41,6 +45,8 @@ export default {
       // Everything past here is a proxy route and is gated. An unauthenticated
       // request gets a bare 404 — the site looks empty to anyone without the key.
       if (!(await validSession(request, env))) return notFound();
+
+      if (path === '/yt') return await ytRedirect(env, origin);
 
       if (path === '/demo') return html(demoPage(), { store: false });
       if (path === '/demo/try') return await demoTry(url);
@@ -205,6 +211,46 @@ async function demoTry(url) {
   }
 }
 
+/* ── /yt — the self-hosted YouTube backend ────────────────────────────────
+
+   The engine is Invidious on the user's Mac, reached through a Cloudflare quick
+   tunnel whose hostname changes on every restart. Rather than bake that moving
+   hostname into a bookmark, the Chromebook always opens /yt; the Mac keeps KV
+   pointed at the live tunnel via PUT /yt/backend, and /yt bounces to it through
+   the existing /b/ browsing proxy. */
+
+async function registerBackend(request, env) {
+  const key = env.UPDATE_KEY || '';
+  if (!key || !timingSafeEqual(request.headers.get('x-update-key') || '', key)) {
+    return notFound(); // wrong/absent token looks like nothing is here
+  }
+  const backend = (await request.text()).trim();
+  try {
+    checkTarget(backend); // must be a public http(s) host — SSRF guard applies
+  } catch {
+    return new Response('bad backend url', { status: 400 });
+  }
+  if (!env.YT) return new Response('KV not bound', { status: 500 });
+  await env.YT.put('yt_backend', backend);
+  return new Response('ok', { status: 200 });
+}
+
+async function ytRedirect(env, origin) {
+  const backend = env.YT ? await env.YT.get('yt_backend') : null;
+  if (!backend) {
+    return html(
+      '<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<style>body{font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:15vh auto;padding:0 24px;color:#18181b}' +
+      '@media(prefers-color-scheme:dark){body{background:#0e0e11;color:#e8e8ea}}</style>' +
+      '<h1>backend offline</h1><p>The YouTube engine has not checked in. Is the Mac awake, ' +
+      'with the containers and the tunnel running?</p><p><a href="/">← home</a></p>',
+      { store: false },
+    );
+  }
+  // Bounce through the browsing proxy so the network only ever sees throughline.
+  return redirect(proxyPath(origin, backend.replace(/\/$/, '') + '/'));
+}
+
 /* ── /b/<url> browsing ────────────────────────────────────────────────── */
 
 async function browse(request, url, origin) {
@@ -264,6 +310,15 @@ async function browse(request, url, origin) {
   }
 
   // Everything else — images, scripts, fonts, media, JSON — streams untouched.
+  // For media the body is byte-identical to upstream, so restore content-length
+  // when it is safe (no content-encoding was applied — the runtime decompresses
+  // those, which would make the declared length wrong). A correct content-length
+  // is what lets a <video>/<audio> element seek and play a progressive stream;
+  // range/content-range are already carried through by the header filter.
+  if (!response.headers.get('content-encoding')) {
+    const len = response.headers.get('content-length');
+    if (len) outHeaders.set('content-length', len);
+  }
   return new Response(response.body, { status, headers: outHeaders });
 }
 

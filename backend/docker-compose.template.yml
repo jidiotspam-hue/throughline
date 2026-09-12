@@ -1,0 +1,113 @@
+# Invidious + companion, Apple Silicon (native arm64), single personal user.
+# Listens on 127.0.0.1:3000 only; the Cloudflare quick tunnel sits in front.
+# No git clone required: check_tables: true builds the schema from the SQL
+# files shipped inside the Invidious image.
+#
+# Secrets are substituted in from .companion_key / .hmac_key by render.sh —
+# edit those files, not this one, then re-run render.sh.
+
+services:
+  invidious:
+    image: quay.io/invidious/invidious:latest   # multi-arch: linux/amd64 + linux/arm64
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Full reference:
+      # https://github.com/iv-org/invidious/blob/master/config/config.example.yml
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: kemal
+          host: invidious-db
+          port: 5432
+
+        # Creates/repairs tables on boot; removes the need to bind-mount
+        # config/sql and init-invidious-db.sh into postgres.
+        check_tables: true
+
+        # --- Invidious companion (mandatory for playback) ---
+        # public_url intentionally omitted -> Invidious proxies companion
+        # itself at its own /companion/* routes, so everything stays on
+        # port 3000 and every URL stays relative.
+        invidious_companion:
+          - private_url: "http://companion:8282/companion"
+
+        # MUST be EXACTLY 16 characters. Must equal SERVER_SECRET_KEY below.
+        invidious_companion_key: "__COMPANION_KEY__"
+
+        # Mandatory. Any random string.
+        hmac_key: "__HMAC_KEY__"
+
+        # --- Behind an https tunnel on an arbitrary/changing hostname ---
+        # domain left unset on purpose: make_host_url() then returns "",
+        # so all generated links are relative and work on ANY hostname.
+        domain:
+        https_only: true   # Secure cookies + https-scheme links
+        hsts: false        # don't pin a throwaway tunnel hostname
+
+        statistics_enabled: false
+        popular_enabled: false
+
+        default_user_preferences:
+          # "Proxy videos": serve media FROM this instance, never googlevideo.
+          # Required for PROGRESSIVE streams (DASH is always proxied).
+          local: true
+          # Progressive muxed MP4 (itag 18) - max compatibility through a proxy.
+          # Use "dash" instead if you want >360p and your tunnel is solid.
+          quality: medium
+          quality_dash: auto
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/stats || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 2
+    logging:
+      options:
+        max-size: "1G"
+        max-file: "4"
+    depends_on:
+      invidious-db:
+        condition: service_healthy
+      companion:
+        condition: service_healthy
+
+  companion:
+    image: quay.io/invidious/invidious-companion:latest   # multi-arch, arm64 native
+    restart: unless-stopped
+    environment:
+      # Same 16-char value as invidious_companion_key above.
+      - SERVER_SECRET_KEY=__COMPANION_KEY__
+      # Image already defaults HOST=0.0.0.0, PORT=8282, SERVER_BASE_PATH=/companion
+    # No ports published. Only Invidious talks to it, over the compose network.
+    logging:
+      options:
+        max-size: "1G"
+        max-file: "4"
+    cap_drop:
+      - ALL
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - companioncache:/var/tmp/youtubei.js:rw
+
+  invidious-db:
+    image: docker.io/library/postgres:14
+    restart: unless-stopped
+    volumes:
+      - postgresdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: invidious
+      POSTGRES_USER: kemal
+      POSTGRES_PASSWORD: kemal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgresdata:
+  companioncache:

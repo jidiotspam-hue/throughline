@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Runs the YouTube backend (colima + Invidious + tunnel) at login and
+       restarts it if it ever exits. Installed by install-agent.sh into
+       ~/Library/LaunchAgents. -->
+  <key>Label</key>
+  <string>com.throughline.backend</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HOME__/Projects/throughline-backend/start.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Don't thrash if something is badly broken. -->
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/Projects/throughline-backend/agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Projects/throughline-backend/agent.log</string>
+</dict>
+</plist>

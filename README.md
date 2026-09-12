@@ -44,6 +44,28 @@ npx wrangler secret put PROXY_KEY   # set the passphrase
 
 Open the printed URL, enter the passphrase once, and use the address bar.
 
+## `/yt` — YouTube and full-length music
+
+The generic proxy can't *play* YouTube (MediaSource streams, signed CDN URLs, a
+service worker, and YouTube blocking every datacenter IP — including
+Cloudflare's). So `/yt` doesn't try. It bounces the browser, still through
+`/b/`, to a **self-hosted Invidious** running on a Mac at home, whose
+residential IP YouTube doesn't block. Invidious plays YouTube video *and*
+full-length YouTube Music.
+
+The Mac reaches the internet through an anonymous Cloudflare quick tunnel whose
+hostname changes on every restart, so the Mac re-registers it with
+`PUT /yt/backend` (gated by the `UPDATE_KEY` secret, stored in KV) and `/yt`
+always points at the live one. The Chromebook bookmark is just `/yt`.
+
+The backend — Invidious + companion + Postgres under Docker, the tunnel script,
+LaunchAgents for auto-start and maintenance — lives in [`backend/`](backend/).
+
+Apple Music full playback is **not** part of this and never can be through a
+proxy: it's FairPlay DRM, origin-bound and login-gated, and we don't circumvent
+DRM. YouTube Music covers "just music"; only 30-second Apple previews are
+reachable without DRM.
+
 ## Honest limits
 
 This is best-effort browsing, not a transparent browser. It does **not** handle

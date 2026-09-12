@@ -9,3 +9,10 @@ compatibility_date = "2025-06-01"
 
 [observability]
 enabled = true
+
+# Holds one dynamic value: the current URL of the self-hosted YouTube backend
+# (Invidious) behind a Cloudflare quick tunnel, which the Mac re-registers on
+# every restart. See the /yt routes in index.js.
+[[kv_namespaces]]
+binding = "YT"
+id = "e02e7f2565ed49b381b189ad154481fa"

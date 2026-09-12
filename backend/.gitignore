@@ -1,0 +1,8 @@
+.companion_key
+.hmac_key
+.update_key
+docker-compose.yml
+current-url
+*.log
+bin/
+.last-pull
