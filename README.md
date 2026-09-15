@@ -44,6 +44,20 @@ npx wrangler secret put PROXY_KEY   # set the passphrase
 
 Open the printed URL, enter the passphrase once, and use the address bar.
 
+## `throughline.html` — the single-file client
+
+`throughline.html` is a standalone launcher: one file, no build, no server, no
+dependencies. Download it, open it from your Downloads folder, and it gives you
+an address bar plus buttons for YouTube, the home page and the test bench.
+
+It is **not** a proxy and holds no secrets. On first open it asks for your
+worker's address and key, keeps them in that browser only, and every button
+just opens the matching page on your own throughline. That is why it can be
+published here safely: nothing in this repo names any particular instance.
+
+It exists because a locked-down Chromebook has no terminal and may not be able
+to reach GitHub Pages — a file in Downloads needs neither.
+
 ## `/yt` — YouTube and full-length music
 
 The generic proxy can't *play* YouTube (MediaSource streams, signed CDN URLs, a

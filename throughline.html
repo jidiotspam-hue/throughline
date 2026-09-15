@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex,nofollow">
+<title>throughline</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f6f7;--fg:#18181b;--card:#fff;--line:#0000001f;--mut:#71717a;--accent:#3f3f46}
+@media(prefers-color-scheme:dark){:root{--bg:#0e0e11;--fg:#e8e8ea;--card:#17171b;--line:#ffffff24;--mut:#9b9ba3;--accent:#e8e8ea}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;background:var(--bg);color:var(--fg);
+ font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+ display:grid;place-items:center;padding:24px}
+main{width:min(560px,100%)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent);margin:0 auto 20px}
+h1{font-size:15px;font-weight:600;margin:0 0 2px;letter-spacing:.01em}
+p.sub{margin:0 0 18px;color:var(--mut);font-size:13px}
+label{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px}
+input{width:100%;padding:13px 14px;font-size:16px;border:1px solid var(--line);border-radius:11px;
+ background:var(--card);color:inherit;font-family:inherit}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:9px}
+.row input{flex:1;min-width:0}
+button{padding:13px 17px;font-size:15px;font-family:inherit;border:0;border-radius:11px;
+ background:var(--accent);color:var(--bg);cursor:pointer;white-space:nowrap}
+button:hover{opacity:.87}
+button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}
+.tile{display:block;padding:15px;border:1px solid var(--line);border-radius:12px;background:var(--card);
+ text-decoration:none;color:inherit;cursor:pointer;text-align:left;font-size:15px}
+.tile:hover{border-color:var(--accent)}
+.tile b{display:block;font-weight:600}
+.tile span{font-size:12px;color:var(--mut)}
+.bar{display:flex;gap:9px;margin-top:20px;align-items:center}
+.bar .who{flex:1;min-width:0;font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link{background:none;border:0;color:var(--mut);font-size:12px;cursor:pointer;padding:4px;text-decoration:underline;font-family:inherit}
+.note{margin-top:18px;font-size:12px;color:var(--mut)}
+.warn{margin-top:14px;padding:11px 13px;border-radius:10px;background:#fee2e2;color:#991b1b;font-size:13px}
+@media(prefers-color-scheme:dark){.warn{background:#450a0a;color:#fca5a5}}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+  <div class="dot"></div>
+
+  <!-- ── setup ─────────────────────────────────────────────── -->
+  <section id="setup" class="hide">
+    <h1>Set up</h1>
+    <p class="sub">Stored only in this browser. Nothing is sent anywhere until you use it.</p>
+    <label for="u">Address</label>
+    <input id="u" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="https://something.workers.dev">
+    <label for="k">Key</label>
+    <input id="k" type="password" placeholder="passphrase" autocomplete="current-password">
+    <div class="row" style="margin-top:14px">
+      <button id="save" style="flex:1">Save</button>
+    </div>
+    <p class="note" id="lsnote"></p>
+  </section>
+
+  <!-- ── main ──────────────────────────────────────────────── -->
+  <section id="main" class="hide">
+    <h1>throughline</h1>
+    <p class="sub" id="status">Unlock once, then it stays unlocked for 30 days.</p>
+
+    <div class="row">
+      <input id="addr" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
+             placeholder="type a link or a search">
+      <button id="go">go</button>
+    </div>
+
+    <div class="tiles">
+      <a class="tile" id="t-yt" target="_blank" rel="noopener"><b>YouTube</b><span>video + full music</span></a>
+      <button class="tile" id="t-unlock"><b>Unlock</b><span>sign in with your key</span></button>
+      <a class="tile" id="t-home" target="_blank" rel="noopener"><b>Home</b><span>the address bar</span></a>
+      <a class="tile" id="t-demo" target="_blank" rel="noopener"><b>Test bench</b><span>blocked vs. proxied</span></a>
+    </div>
+
+    <div class="bar">
+      <span class="who" id="who"></span>
+      <button class="link" id="edit">change</button>
+    </div>
+    <div class="warn hide" id="warn"></div>
+  </section>
+</main>
+
+<!-- A launcher, not a proxy. It only knows an address and a key, both kept in
+     this browser; every button just opens the right page on your own
+     throughline. Works straight from Downloads over file:// - nothing here
+     needs a web server, which is the point. -->
+<script>
+(function () {
+  var KEY = 'throughline.cfg';
+  var $ = function (id) { return document.getElementById(id); };
+  var store = null, mem = null;
+
+  try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); store = localStorage; }
+  catch (e) { store = null; }
+
+  function load() {
+    if (!store) return mem;
+    try { return JSON.parse(store.getItem(KEY) || 'null'); } catch (e) { return null; }
+  }
+  function save(cfg) {
+    mem = cfg;
+    if (store) { try { store.setItem(KEY, JSON.stringify(cfg)); } catch (e) {} }
+  }
+
+  function normBase(v) {
+    v = String(v || '').trim().replace(/\/+$/, '');
+    if (!v) return '';
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+    try { return new URL(v).origin; } catch (e) { return ''; }
+  }
+
+  function show(which) {
+    $('setup').classList.toggle('hide', which !== 'setup');
+    $('main').classList.toggle('hide', which !== 'main');
+  }
+
+  function render(cfg) {
+    $('t-yt').href = cfg.url + '/yt';
+    $('t-home').href = cfg.url + '/';
+    $('t-demo').href = cfg.url + '/demo';
+    try { $('who').textContent = new URL(cfg.url).hostname; } catch (e) { $('who').textContent = cfg.url; }
+    if (!store) {
+      $('warn').classList.remove('hide');
+      $('warn').textContent = 'This browser will not keep the settings for a local file, so you may have to enter them again next time.';
+    }
+    show('main');
+  }
+
+  // Unlock posts the key straight to the worker in a real form submit, which
+  // a cross-origin fetch could not do from file:// - the point is to let the
+  // worker set its own cookie on its own domain, in a new tab so this page stays.
+  function unlock(cfg) {
+    var f = document.createElement('form');
+    f.method = 'POST';
+    f.action = cfg.url + '/login';
+    f.target = '_blank';
+    f.rel = 'noopener';
+    var i = document.createElement('input');
+    i.type = 'hidden'; i.name = 'key'; i.value = cfg.pass;
+    f.appendChild(i);
+    document.body.appendChild(f);
+    f.submit();
+    document.body.removeChild(f);
+    $('status').textContent = 'Opened a tab to unlock. Come back here afterwards.';
+  }
+
+  function navigate(cfg) {
+    var v = $('addr').value.trim();
+    if (!v) return;
+    var target;
+    if (/^https?:\/\//i.test(v)) target = v;
+    else if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$|\?|#)/i.test(v)) target = 'https://' + v;
+    else target = 'https://duckduckgo.com/?q=' + encodeURIComponent(v);
+    window.open(cfg.url + '/b/' + target, '_blank', 'noopener');
+    $('addr').value = '';
+  }
+
+  var cfg = load();
+
+  $('save').addEventListener('click', function () {
+    var url = normBase($('u').value);
+    if (!url) { $('u').focus(); $('lsnote').textContent = 'That does not look like a web address.'; return; }
+    var pass = $('k').value;
+    if (!pass) { $('k').focus(); $('lsnote').textContent = 'Enter your key.'; return; }
+    cfg = { url: url, pass: pass };
+    save(cfg);
+    render(cfg);
+  });
+
+  $('edit').addEventListener('click', function () {
+    $('u').value = cfg ? cfg.url : '';
+    $('k').value = cfg ? cfg.pass : '';
+    $('lsnote').textContent = '';
+    show('setup');
+  });
+
+  $('t-unlock').addEventListener('click', function () { unlock(cfg); });
+  $('go').addEventListener('click', function () { navigate(cfg); });
+  $('addr').addEventListener('keydown', function (e) { if (e.key === 'Enter') navigate(cfg); });
+
+  if (cfg && cfg.url) { render(cfg); } else { show('setup'); $('u').focus(); }
+  if (!store) $('lsnote').textContent = 'Note: this browser will not remember settings for a local file.';
+})();
+</script>
+</body>
+</html>
