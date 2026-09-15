@@ -1,7 +1,7 @@
 # throughline local test environment
 
 Tools for exercising the deployed throughline worker
-(`https://<your-worker>.workers.dev`) against a simulated
+(`$THROUGHLINE_URL`) against a simulated
 locked-down network. Everything here uses only Node built-in modules
 and `curl` — no npm installs.
 

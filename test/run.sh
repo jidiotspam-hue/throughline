@@ -10,8 +10,13 @@ cd "$SCRIPT_DIR"
 
 NODE=/opt/homebrew/bin/node
 PORT="${PORT:-8100}"
-BASE="https://<your-worker>.workers.dev"
-PASSPHRASE="__REDACTED_PASSPHRASE__"
+# Secrets come from ../config.env (gitignored), never from this file.
+CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.env"
+[ -f "$CONFIG" ] || { echo "missing config.env - copy config.env.example and fill it in" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$CONFIG"
+BASE="${THROUGHLINE_URL:?set THROUGHLINE_URL in config.env}"
+PASSPHRASE="${PASSPHRASE:?set PASSPHRASE in config.env}"
 JAR="$SCRIPT_DIR/.jar.$$"
 BLOCKER_LOG="$SCRIPT_DIR/.blocker.$$.log"
 BLOCKER_PID=""
@@ -81,8 +86,8 @@ echo "== Step 2: prove direct access is blocked =="
 check_blocked "https://example.com" "example.com"
 check_blocked "https://en.wikipedia.org" "wikipedia.org"
 
-echo "== Step 3: restart blocker with ALLOW=<your-worker>.workers.dev =="
-start_blocker "<your-worker>.workers.dev"
+echo "== Step 3: restart blocker with ALLOW=${BASE#https://} =="
+start_blocker "${BASE#https://}"
 
 echo "== Step 4: log in to throughline (through the blocker) =="
 curl -s -x "http://localhost:$PORT" --proxy-insecure -c "$JAR" -d "key=$PASSPHRASE" "$BASE/login" -o /dev/null

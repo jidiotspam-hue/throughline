@@ -11,7 +11,12 @@
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
 KEY="$(tr -d '[:space:]' < "$DIR/.update_key")"
-THROUGHLINE="https://<your-worker>.workers.dev"
+# URL comes from config.env (gitignored) so this file names no instance.
+CONFIG="$DIR/config.env"
+[ -f "$CONFIG" ] || { echo "missing $CONFIG - copy config.env.example and fill it in" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$CONFIG"
+THROUGHLINE="${THROUGHLINE_URL:?set THROUGHLINE_URL in config.env}"
 LOCAL="http://localhost:3000"
 LOG="$DIR/tunnel.log"
 

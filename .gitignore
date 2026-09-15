@@ -3,3 +3,4 @@ worker/.wrangler/
 .DS_Store
 *.log
 test/.gui-jar
+config.env

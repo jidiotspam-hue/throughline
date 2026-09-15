@@ -6,3 +6,4 @@ current-url
 *.log
 bin/
 .last-pull
+config.env

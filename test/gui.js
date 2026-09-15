@@ -25,8 +25,22 @@ const { start: startBlocker } = require('./blocker.js');
 const GUI_PORT = process.env.GUI_PORT ? Number(process.env.GUI_PORT) : 8099;
 const BLOCKER_PORT = process.env.BLOCKER_PORT ? Number(process.env.BLOCKER_PORT) : 8100;
 
-const BASE = 'https://<your-worker>.workers.dev';
-const PASSPHRASE = '__REDACTED_PASSPHRASE__';
+// Secrets come from ../config.env (gitignored), never from this file.
+const CONFIG_PATH = path.join(__dirname, '..', 'config.env');
+function loadConfig() {
+  let txt = '';
+  try { txt = fs.readFileSync(CONFIG_PATH, 'utf8'); }
+  catch { console.error('missing config.env - copy config.env.example and fill it in'); process.exit(1); }
+  const cfg = {};
+  for (const line of txt.split('\n')) {
+    const m = /^\s*([A-Z_]+)\s*=\s*(.*)$/.exec(line);
+    if (m) cfg[m[1]] = m[2].trim();
+  }
+  return cfg;
+}
+const CONFIG = loadConfig();
+const BASE = CONFIG.THROUGHLINE_URL || (console.error('set THROUGHLINE_URL in config.env'), process.exit(1));
+const PASSPHRASE = CONFIG.PASSPHRASE || (console.error('set PASSPHRASE in config.env'), process.exit(1));
 const JAR_PATH = path.join(__dirname, '.gui-jar');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -38,7 +52,7 @@ const BLOCK_TEXT = 'sorry, blocked';
 // while filter=on/proxy=off stays blocked.
 const blockerServer = startBlocker({
   port: BLOCKER_PORT,
-  allow: ['<your-worker>.workers.dev'],
+  allow: [new URL(BASE).hostname],
 });
 
 // --- Log in to throughline once at startup to create a cookie jar.
@@ -204,7 +218,7 @@ const server = http.createServer((req, res) => {
 login(() => {
   server.listen(GUI_PORT, () => {
     console.error(`gui.js listening on http://localhost:${GUI_PORT}`);
-    console.error(`(embedded blocker on port ${BLOCKER_PORT}, ALLOW=<your-worker>.workers.dev)`);
+    console.error(`(embedded blocker on port ${BLOCKER_PORT}, ALLOW=${new URL(BASE).hostname})`);
   });
 });
 
