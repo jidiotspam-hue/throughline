@@ -40,6 +40,13 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)
 .warn{margin-top:14px;padding:11px 13px;border-radius:10px;background:#fee2e2;color:#991b1b;font-size:13px}
 @media(prefers-color-scheme:dark){.warn{background:#450a0a;color:#fca5a5}}
 .hide{display:none}
+#results{list-style:none;padding:0;margin:14px 0 0}
+#results li{display:flex;gap:9px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+#results li:last-child{border-bottom:0}
+#results .m{width:1.3em;text-align:center;font-weight:700}
+#results .u{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace;font-size:12px}
+#results .ok .m{color:#15803d}#results .no .m{color:#b91c1c}#results .wait .m{color:var(--mut)}
+@media(prefers-color-scheme:dark){#results .ok .m{color:#86efac}#results .no .m{color:#fca5a5}}
 </style>
 </head>
 <body>
@@ -81,8 +88,21 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)
 
     <div class="bar">
       <span class="who" id="who"></span>
+      <button class="link" id="diag">what can I reach?</button>
       <button class="link" id="edit">change</button>
     </div>
+
+    <section id="probe" class="hide">
+      <label for="extra">Also test (one URL per line)</label>
+      <input id="extra" type="text" placeholder="https://something-else.example.com">
+      <div class="row" style="margin-top:9px">
+        <button id="run" style="flex:1">Run check</button>
+      </div>
+      <ul id="results"></ul>
+      <p class="note">A cross tells you the browser could not open that host at all, which on a
+      filtered network usually means it is blocked. A tick means it is reachable. This cannot
+      read the pages, only see whether they answer.</p>
+    </section>
     <div class="warn hide" id="warn"></div>
   </section>
 </main>
@@ -184,6 +204,55 @@ button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)
   $('t-unlock').addEventListener('click', function () { unlock(cfg); });
   $('go').addEventListener('click', function () { navigate(cfg); });
   $('addr').addEventListener('keydown', function (e) { if (e.key === 'Enter') navigate(cfg); });
+
+  // ---- reachability probe -------------------------------------------------
+  // A no-cors fetch cannot read the response, but it still tells us the
+  // difference that matters here: a host the network refuses fails outright,
+  // while a reachable one resolves an opaque response. Good enough to find
+  // which of several candidate homes this network will actually allow.
+  function probe(url, ms) {
+    return new Promise(function (resolve) {
+      var done = false, t = setTimeout(function () { if (!done) { done = true; resolve(false); } }, ms || 8000);
+      fetch(url, { mode: 'no-cors', cache: 'no-store' }).then(function () {
+        if (!done) { done = true; clearTimeout(t); resolve(true); }
+      }).catch(function () {
+        if (!done) { done = true; clearTimeout(t); resolve(false); }
+      });
+    });
+  }
+
+  function candidates() {
+    var list = [];
+    if (cfg && cfg.url) list.push(cfg.url + '/');
+    list.push('https://example.com/');
+    ['trycloudflare.com','vercel.app','deno.dev','netlify.app','onrender.com',
+     'fly.dev','pages.dev','glitch.me','val.run','railway.app'
+    ].forEach(function (h) { list.push('https://' + h + '/'); });
+    $('extra').value.split(/[\s,]+/).forEach(function (v) {
+      v = v.trim(); if (!v) return;
+      if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+      list.push(v);
+    });
+    return list;
+  }
+
+  $('diag').addEventListener('click', function () { $('probe').classList.toggle('hide'); });
+
+  $('run').addEventListener('click', async function () {
+    var ul = $('results'); ul.innerHTML = '';
+    var list = candidates(), rows = [];
+    list.forEach(function (u) {
+      var li = document.createElement('li'); li.className = 'wait';
+      li.innerHTML = '<span class="m">.</span><span class="u"></span>';
+      li.querySelector('.u').textContent = u;
+      ul.appendChild(li); rows.push(li);
+    });
+    for (var i = 0; i < list.length; i++) {
+      var ok = await probe(list[i]);
+      rows[i].className = ok ? 'ok' : 'no';
+      rows[i].querySelector('.m').textContent = ok ? '\u2713' : '\u2717';
+    }
+  });
 
   if (cfg && cfg.url) { render(cfg); } else { show('setup'); $('u').focus(); }
   if (!store) $('lsnote').textContent = 'Note: this browser will not remember settings for a local file.';
